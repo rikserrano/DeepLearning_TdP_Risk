@@ -73,7 +73,7 @@ fit.binomial <- function(dum,var.name){
   tryCatch(
     {
       newdata.ext <- expand.grid(Dose=exp(seq(log(min(dum$Dose)), 
-                                              log(1e6*max(dum$Dose)), length=3000)))
+                                              log(max(1e6*dum$Dose)), length=3000)))
       newdata.ext <- bind_cols(newdata.ext, setNames(as_tibble(predict(obj, newdata.ext, se.fit = TRUE)[1:2]),
                                                      c('fit_link','se_link')))
       newdata.ext <- mutate(newdata.ext,
@@ -98,4 +98,35 @@ fit.binomial <- function(dum,var.name){
                             Compound = dum$Compound[1])
       l <- list(fit.data = dum, fit.obj = obj, fit.fitted=newdata, fit.ec50 = ec50.df)
     })
+}
+
+# Helper function to plot confusion matrix from caret object
+plot.confusionMatrix <- function(cm,  nbins = 5){
+  t<-cm$table %>% as_tibble()
+  p <- prop.table(cm$table,margin = 2) %>% as_tibble() %>% rename(perc = n)
+  df <- left_join(t,p)
+  df$Reference <- factor(df$Reference,levels = c("Arrhythmic","NonArrhythmic","Cessation"))
+  df$Prediction <- factor(df$Prediction,levels = c("Arrhythmic","NonArrhythmic","Cessation"))
+  
+  scale_fill_custom <- function (..., alpha = 1, begin = 0, end = 1, direction = 1, 
+                                 option = "D", values = NULL, space = "Lab", na.value = "grey50", 
+                                 guide = "colourbar", aesthetics = "fill") {
+    continuous_scale(aesthetics, scale_name = "custom", 
+                     palette = scales:::gradient_n_pal(c("white", "#b3cde0", "#6497b1", "#005b96", "#03396c"), 
+                                                       values, space), na.value = na.value, 
+                     guide = guide, ...)
+  }
+  binedges <- seq(0,1,length.out = nbins+1)
+  pl <- ggplot(df,aes(x=Prediction,y=Reference,fill=perc))+
+    geom_tile()+
+    geom_text(aes(label= paste0(n,"\n(",percent(perc,accuracy = 0.1),")"),
+                  color = perc > 0.5),size=2) +
+    scale_color_manual(guide = "none", values = c("black", "white"))+
+    scale_y_discrete(limits = rev(levels(df$Prediction)),expand = c(0,0))+
+    scale_x_discrete(expand = c(0,0))+
+    scale_fill_binned(name = "",breaks = binedges, 
+                      labels = percent(binedges),
+                      guide = guide_bins(show.limits = T,reverse = T,axis = F),
+                      type = scale_fill_custom)
+  pl
 }

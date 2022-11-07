@@ -3,16 +3,14 @@ library(keras)
 library(caret)
 source("utils.R")
 
-load("files/ExperimentalConditionsAndTraceMetrics.Rda")
+load("files/ExpConditionsAndTraceMetrics.Rda")
 load("files/Traces.Rda")
 training.UUIDs <- read.csv("files/training_UUIDs.csv")[,1]
 training.labels <- read.csv("files/training_UUIDs.csv")[,2]
-validation.UUIDs <- read.csv("files/validation_UUIDs.csv")[,1]
-validation.labels <- read.csv("files/validation_UUIDs.csv")[,2]
 
 
 # Normalize each trace to range [0,1] per plate
-aaa <- KIC.df %>% group_by(cell.line,batch,plate) %>% group_split()
+aaa <- KIC.data %>% group_by(cell.line,batch,plate) %>% group_split()
 plate.info <- aaa[[1]]
 bbb <- lapply(aaa, function(plate.info){
   plate.traces <- traces.data %>% select(plate.info$UUID)
@@ -28,11 +26,6 @@ save(normalized_traces,file="files/NormalizedTraces.Rda")
 x_train <- as.matrix(t(normalized_traces[,training.UUIDs]))
 x_train <- reshape_X_3d(x_train)
 y_train <- labels_to_one_hot(training.labels)
-
-# Prepare the validation data
-x_valid <- as.matrix(t(normalized_traces[,validation.UUIDs]))
-x_valid <- reshape_X_3d(x_valid)
-y_valid <- labels_to_one_hot(validation.labels)
 
 # CNN network implementation in Keras
 input_layer <- 
@@ -81,7 +74,6 @@ classifier  %>% compile(
 classifier %>% fit(
   x = x_train,
   y = y_train,
-  validation_data = list(x_valid,y_valid),
   epochs = 20
 )
 
