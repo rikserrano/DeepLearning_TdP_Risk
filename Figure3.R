@@ -4,14 +4,11 @@ library(reshape2)
 library(gridExtra)
 source("utils.R")
 load("files/NormalizedTraces.Rda")
-load("files/ExperimentalConditionsAndTraceMetrics.Rda")
+load("files/ExpConditionsAndTraceMetrics.Rda")
 load("files/AI_predictions.Rda")
 load("files/drcs.arrhythmic.Rda")
 load("files/ec50s.arrhythmic.Rda")
-dir.create("Figures/Figure3")
-
-df <- left_join(KIC.df,prediction_df)
-
+df <- left_join(KIC.data,prediction_df)
 
 # Ibutilide plot (panels A and B) -------------------------------------------
 # Plot traces
@@ -82,7 +79,7 @@ ggplot(sample.drc,aes(x=log10(1e-6*Dose),y=Prob.Arrhythmic.AI))+
 ggsave('Figures/Figure3/Ibutilide_drc.pdf',width = 3,height = 2)
 
 # Plot other sample Prob.Arrhythmic  -------------------------------------------
-sample.comps <- c("Ibutilide","Flecainide","Ondansetron","Citalopram","Verapamil","Aspirin")
+sample.comps <- c("Ibutilide","Flecainide","Ondansetron","Citalopram","Loratadine","Aspirin")
 drc <- drcs.arrhythmic.df %>% filter(Compound %in% sample.comps, cell.line == "HD.15S1") %>%
   mutate(Compound = factor(Compound,levels = sample.comps))
 drc.ec50 <- ec50s.arrhythmic %>% filter(Compound %in% sample.comps, cell.line == "HD.15S1") %>%
@@ -93,9 +90,9 @@ ggplot(drc,aes(x=log10(1e-6*Dose),y=fit_resp))+
   geom_line()+
   geom_point(data=drc.ec50,aes(x=log10(1e-6*ec50), y=1.05),shape=25,size=2,fill="black")+
   geom_segment(data=drc.ec50,aes(x = log10(1e-6*ec50) , y = c(0.5,0.5,0.5,0.5,0.5,0.5), xend = log10(1e-6*ec50), yend = c(1.05,1.05,1.05,1.05,1.05,1.05)),linetype="dotted")+
-  facet_wrap(~Compound,scales = "free",nrow=1)+
-  scale_y_continuous(name="Probability\nArrhythmic")+
-  scale_x_continuous(name="log(Dose)")+
+  facet_wrap(~Compound,scales = "free_x",nrow=1)+
+  scale_y_continuous(name="Probability\nArrhythmia")+
+  scale_x_continuous(name="log10[concentration]")+
   theme_classic(base_family = "sans",
                 base_size = 11)+
   theme(axis.text = element_text(color="black"),
@@ -117,7 +114,7 @@ ggplot(safety.margin.hp,aes(x=cell.line,y=Compound,fill=safety.margin))+
   geom_tile(color="white")+
   scale_fill_gradientn(name = "Torsadogenic\nSafety Margin = \n log10(ec50/Cmax)",
                        colours=colorRampPalette(c("#FF0000","#44BCD8","#CCE7E8","#FFFFFF"))(100),
-                       limits=c(0,5), oob = squish,na.value = "#FFFFFF")+
+                       limits=c(-1,5), oob = squish,na.value = "#FFFFFF")+
   scale_y_discrete(limits=rev,expand = c(0,0))+
   scale_x_discrete(expand = c(0,0))+
   theme_classic(base_size = 11,
@@ -141,13 +138,16 @@ for (iline in lines){
                shape=25,size=1,fill="black")+
     geom_vline(xintercept = 0,linetype="dashed")+
     ggtitle(iline)+
-    scale_fill_gradientn(name="Proarrhythmia Score", breaks = c(seq(from=0,to=1,length.out = 6)),
+    scale_fill_gradientn(name="Probability Arrhythmia", breaks = c(seq(from=0,to=1,length.out = 6)),
                          colours=colorRampPalette(c("#006400","#008000","#FFA500","#FF8C00","#FF4500","#8B0000"))(100),
                          limits=c(0,1), oob = squish)+
     scale_x_continuous(limits=c(-3,4))+
     theme_classic(base_size = 11,
                   base_family = "sans")+
-    theme(aspect.ratio = 3)
+    theme(aspect.ratio = 3,
+          axis.text.x = element_text(color="black"),
+          axis.text.y = element_text(color="black"),
+          axis.ticks = element_line(color = "black"))
   ggsave(paste0("Figures/Figure3/",iline,".bars.pdf"),height = 5,width=5)
 }
 
@@ -167,7 +167,6 @@ risk.combined.df <- ec50s.arrhythmic %>% filter(grepl(pattern = "HD",x=cell.line
       CiPA.Classification == "Intermediate" ~ "High",
       CiPA.Classification == "Low" ~ "Low")
   )
-
 
 
 fit.control <- trainControl(method = "cv", number = 10,
@@ -199,6 +198,71 @@ plot1+
   ggtitle('High-intermediate vs Low')
 
 ggsave("Figures/Figure3/ROC_combined.pdf",height = 2,width = 2)
+a <- df %>% mutate(wrong = CiPA.Classification.Combined!=Model.Prediction) %>% 
+  group_by(Compound) %>% mutate(perc = sum(wrong)/n())
+
+risk.high.low.df <- ec50s.arrhythmic %>% filter(grepl(pattern = "HD",x=cell.line),
+                                                         CiPA.Classification %in% c("High","Low"))%>%  
+  replace_na(list(safety.margin=7))
+
+fit.control <- trainControl(method = "cv", number = 10,
+                            summaryFunction = twoClassSummary, classProbs = TRUE)
+
+set.seed(123)
+fit <- train(CiPA.Classification ~ safety.margin, 
+             data = risk.high.low.df, method = "glm", 
+             family = "binomial", trControl = fit.control)
+fit
+p <- predict(fit,type = "prob",newdata = risk.high.low.df)
+p2 <- predict(fit,type = "raw",newdata = risk.high.low.df)
+df <- data.frame(Compound = risk.high.low.df$Compound, 
+                 cell.line = risk.high.low.df$cell.line,
+                 Prob.Low = p$Low,
+                 Model.Prediction = p2,
+                 CiPA.Classification = as.factor(risk.high.low.df$CiPA.Classification) 
+)
+confusionMatrix(data=df$Model.Prediction,reference = df$CiPA.Classification)
+plot2 <- ggplot(df, aes(d = CiPA.Classification, m = Prob.Low)) +
+  geom_roc(labels = F,pointsize = 0.4,size=1)
+auc<- calc_auc(plot2)
+plot2+
+  annotate("text",x=0.5,0.5,label=paste('AUC = ',round(auc$AUC,digits=2)))+
+  scale_x_continuous(name='False positive fraction')+
+  scale_y_continuous(name='True positive fraction')+
+  theme_classic()+
+  theme(aspect.ratio = 1)+
+  ggtitle('High vs low')
+ggsave("Figures/Figure3/ROC_high_vs_low.pdf",height = 2,width = 2)
+
+
+risk.intermediate.low.df <- ec50s.arrhythmic %>% filter(grepl(pattern = "HD",x=cell.line),
+                                                         CiPA.Classification %in% c("Intermediate","Low"))%>%  
+  replace_na(list(safety.margin=7))
+set.seed(123)
+fit <- train(CiPA.Classification ~ safety.margin, 
+             data = risk.intermediate.low.df, method = "glm", 
+             family = "binomial", trControl = fit.control)
+fit
+p <- predict(fit,type = "prob",newdata = risk.intermediate.low.df)
+p2 <- predict(fit,type = "raw",newdata = risk.intermediate.low.df)
+df <- data.frame(Compound = risk.intermediate.low.df$Compound, 
+                 cell.line = risk.intermediate.low.df$cell.line,
+                 Prob.Low = p$Low,
+                 Model.Prediction = p2,
+                 CiPA.Classification = as.factor(risk.intermediate.low.df$CiPA.Classification) 
+)
+confusionMatrix(data=df$Model.Prediction,reference = df$CiPA.Classification)
+plot3 <- ggplot(df, aes(d = CiPA.Classification, m = Prob.Low)) + 
+  geom_roc(labels = F,pointsize = 0.4,size=1)
+auc<- calc_auc(plot3)
+plot3+
+  annotate("text",x=0.5,0.5,label=paste('AUC = ',round(auc$AUC,digits=2)))+
+  scale_x_continuous(name='False positive fraction')+
+  scale_y_continuous(name='True positive fraction')+
+  theme_classic()+
+  theme(aspect.ratio = 1)+
+  ggtitle('Intermediate vs low')
+ggsave("Figures/Figure3/ROC_intermediate_vs_low.pdf",height = 2,width = 2)
 
 
 

@@ -4,14 +4,10 @@ library(reshape2)
 library(gridExtra)
 library(caret)
 source("utils.R")
-
-dir.create("Figures")
-dir.create("Figures/Figure2")
-
 load("files/NormalizedTraces.Rda")
-load("files/ExperimentalConditionsAndTraceMetrics.Rda")
+load("files/ExpConditionsAndTraceMetrics.Rda")
 load("files/AI_predictions.Rda")
-df <- left_join(KIC.df,prediction_df)
+df <- left_join(KIC.data,prediction_df)
 sample.UUIDs <- c("20181218_CIPA_15S1_WT_plate1_G20", # Example of Non-arrhythmic
                   "20181218_CIPA_15S1_WT_plate1_G13", # Example of Arrhythmic
                   "20181218_CIPA_15S1_WT_plate1_G05") # Example of Cessation
@@ -44,27 +40,49 @@ ggplot(sample.traces.df,aes(x=variable,y=value,fill=variable))+
         strip.text = element_blank(),
         axis.title = element_blank(),
         legend.position = "none")+
-  scale_x_discrete(labels=c("Non-Arr.","Arrhythmic","Asystolic"))
+  scale_x_discrete(labels=c("Non-Arr.","Arrhythmic","Cessation"))
 ggsave("Figures/Figure2/sample.traces.metrics.pdf",width = 2.2,height = 3)
 
 df2 <- df %>% filter(BadBatch==0) %>% mutate(reference.class = case_when(
   (Dose >= Cmax)&(CiPA.Classification == "High") & (Cessation == 0) ~ "Arrhythmic",
   (Dose <= Cmax)&(CiPA.Classification == "Low") & (Cessation == 0)  ~ "NonArrhythmic",
-  (Cessation == 1) ~ "Asystolic",
+  (Cessation == 1) ~ "Cessation",
                   TRUE ~ "N/A"))
-training.df <- read.csv("files/training_UUIDs.csv")
-validation.df <- read.csv("files/validation_UUIDs.csv")
 
-# Confusion matrix for Training set
 dum <- df2 %>% filter(Dataset == "Training")
-confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+cm.training <- confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+print(cm.training)
+theme.cm <- theme_minimal(base_family = "sans",
+                          base_size = 9)+
+  theme(axis.text = element_text(color = "black"),
+        axis.text.x = element_text(angle = 45,hjust = 1,vjust=1),
+        aspect.ratio = 1) 
+a <- plot.confusionMatrix(cm.training)
+a + theme.cm 
+ggsave("Figures/Figure2/TrainingCM.pdf",width = 3,height = 2)
 
+dum <- df2 %>% filter(Compound == "Bepridil",Dataset=="Training") 
+cm.bep <- confusionMatrix(reference = factor(dum$reference.class,levels=c("Arrhythmic","NonArrhythmic","Cessation")),
+                          factor(dum$Classification.AI,levels=c("Arrhythmic","NonArrhythmic","Cessation")))
+print(cm.bep)
 
-# Confusion matrix for Validation set
-dum <- df2 %>% filter(Dataset == "Validation")
-confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+dum <- df2 %>% filter(Dataset == "Test1", reference.class != "N/A")
+cm.test1 <- confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+print(cm.test1)
+a <- plot.confusionMatrix(cm.test1)
+a + theme.cm 
+ggsave("Figures/Figure2/Test1CM.pdf",width = 3,height = 2)
 
+dum <- df2 %>% filter(Dataset == "Test2", reference.class != "N/A")
+cm.test2 <- confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+print(cm.test2)
+a <- plot.confusionMatrix(cm.test2)
+a + theme.cm 
+ggsave("Figures/Figure2/Test2CM.pdf",width = 3,height = 2)
 
-# Confusion matrix for Test
-dum <- df2 %>% filter(Dataset == "Test", reference.class != "N/A")
-confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+dum <- df2 %>% filter(Dataset == "Test3", reference.class != "N/A")
+cm.test3 <- confusionMatrix(reference = as.factor(dum$reference.class),as.factor(dum$Classification.AI))
+print(cm.test3)
+a <- plot.confusionMatrix(cm.test3)
+a + theme.cm 
+ggsave("Figures/Figure2/Test3CM.pdf",width = 3,height = 2)
